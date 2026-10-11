@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>المستوى الإحداثي — سبورة الرسم</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; overscroll-behavior:none;
+    font-family:"Segoe UI","Noto Kufi Arabic","Noto Sans Arabic",Tahoma,Arial,sans-serif;
+    background:#FDFDFB; }
+  #stage { position:fixed; inset:0; }
+  canvas { position:absolute; inset:0; display:block; touch-action:none; }
+  #ink { cursor:crosshair; }
+
+  /* ---------- شريط الأدوات ---------- */
+  #bar {
+    position:fixed; top:10px; right:50%; transform:translateX(50%);
+    max-width:calc(100vw - 16px);
+    display:flex; align-items:center; flex-wrap:wrap; gap:5px;
+    background:rgba(255,255,255,.97);
+    border:1px solid #E2E8F0; border-radius:16px;
+    box-shadow:0 10px 34px rgba(15,23,42,.16);
+    padding:7px 9px; z-index:30; direction:rtl;
+  }
+  .tbtn {
+    min-height:44px; padding:0 13px; border-radius:11px;
+    border:1.5px solid #E2E8F0; background:#fff; color:#334155;
+    font:600 15px/1 inherit; font-family:inherit;
+    display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+    user-select:none; -webkit-user-select:none;
+  }
+  .tbtn:hover { border-color:#C7D2E0; background:#F6F9FC; }
+  .tbtn.active { background:#16324F; border-color:#16324F; color:#fff; }
+  .tbtn:disabled { opacity:.38; cursor:default; }
+  .tbtn svg { width:19px; height:19px; flex:none; }
+  .sep { width:1px; height:30px; background:#E2E8F0; margin:0 3px; flex:none; }
+  .dots { display:flex; gap:5px; align-items:center; }
+  .cdot {
+    width:31px; height:31px; border-radius:50%; border:2.5px solid #fff;
+    outline:1.5px solid #D5DDE8; cursor:pointer; flex:none; padding:0;
+  }
+  .cdot.active { outline:2.5px solid #16324F; outline-offset:2px; }
+  .szbtn {
+    width:36px; height:36px; border-radius:50%; border:1.5px solid #E2E8F0;
+    background:#fff; cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+    flex:none; padding:0;
+  }
+  .szbtn:hover { border-color:#C7D2E0; }
+  .szbtn.active { border-color:#16324F; background:#EEF3F8; }
+  .szbtn i { border-radius:50%; background:#334155; display:block; }
+  .szbtn.active i { background:#16324F; }
+  select.tbtn { appearance:none; -webkit-appearance:none; padding-left:26px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' fill='none' stroke='%23334155' stroke-width='2' stroke-linecap='round'/></svg>");
+    background-repeat:no-repeat; background-position:left 10px center; }
+  .tgl .on { display:none; } .tgl.active .on { display:inline; } .tgl.active .off { display:none; }
+
+  #showBar {
+    position:fixed; top:10px; right:10px; z-index:31; display:none;
+    width:46px; height:46px; border-radius:50%; border:1.5px solid #E2E8F0;
+    background:rgba(255,255,255,.97); box-shadow:0 6px 20px rgba(15,23,42,.16);
+    cursor:pointer; align-items:center; justify-content:center;
+  }
+  #showBar svg { width:22px; height:22px; }
+
+  /* ---------- بطاقة الإحداثيات ---------- */
+  #chip {
+    position:fixed; z-index:25; display:none; pointer-events:none;
+    background:#111827; color:#fff; font-weight:700; font-size:14.5px;
+    padding:4px 11px; border-radius:8px; direction:ltr;
+    font-variant-numeric:tabular-nums; box-shadow:0 4px 14px rgba(15,23,42,.3);
+    white-space:nowrap;
+  }
+
+  /* ---------- مؤشر الممحاة ---------- */
+  #ecur {
+    position:fixed; z-index:24; display:none; pointer-events:none;
+    width:30px; height:30px; border:2px solid #16324F; border-radius:50%;
+    transform:translate(-50%,-50%); background:rgba(22,50,79,.06);
+  }
+
+  /* ---------- تلميح البداية ---------- */
+  #hint {
+    position:fixed; bottom:18px; right:50%; transform:translateX(50%);
+    z-index:20; background:rgba(15,23,42,.92); color:#fff;
+    font-size:14.5px; font-weight:600; padding:10px 18px; border-radius:12px;
+    box-shadow:0 8px 26px rgba(15,23,42,.3); transition:opacity .8s; text-align:center;
+    max-width:calc(100vw - 30px);
+  }
+  #hint.gone { opacity:0; pointer-events:none; }
+  #hint b { color:#7EE2B8; }
+
+  /* ---------- اسم الإعداد ---------- */
+  #credit {
+    position:fixed; bottom:12px; left:12px; z-index:20;
+    background:rgba(255,255,255,.93); border:1px solid #E2E8F0;
+    border-radius:12px; padding:8px 16px;
+    font-size:15.5px; font-weight:700; color:#16324F;
+    box-shadow:0 6px 20px rgba(15,23,42,.12);
+    pointer-events:none; white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="grid"></canvas>
+  <canvas id="ink"></canvas>
+</div>
+
+<div id="bar">
+  <button class="tbtn tool active" data-tool="pen" title="قلم">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
+    قلم
+  </button>
+  <button class="tbtn tool" data-tool="line" title="خط مستقيم">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19L19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="5" r="1.6" fill="currentColor" stroke="none"/></svg>
+    خط
+  </button>
+  <button class="tbtn tool" data-tool="eraser" title="ممحاة">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H8.5l-5-5a2 2 0 010-2.8L13 2.7a2 2 0 012.8 0l5.5 5.5a2 2 0 010 2.8L12 20"/><path d="M8.5 20l-5-5"/></svg>
+    ممحاة
+  </button>
+  <div class="sep"></div>
+  <div class="dots" id="colors"></div>
+  <div class="sep"></div>
+  <div class="dots" id="sizes"></div>
+  <div class="sep"></div>
+  <button class="tbtn tgl" id="snapBtn" title="تثبيت النقاط والنهايات على تقاطعات الشبكة">
+    التقاط
+  </button>
+  <button class="tbtn tgl active" id="chipBtn" title="إظهار الإحداثيات عند تحريك المؤشر">
+    الإحداثيات
+  </button>
+  <div class="sep"></div>
+  <select class="tbtn" id="range" title="مدى المستوى">
+    <option value="5">المدى: ‎-5 إلى 5</option>
+    <option value="10" selected>المدى: ‎-10 إلى 10</option>
+    <option value="20">المدى: ‎-20 إلى 20</option>
+  </select>
+  <div class="sep"></div>
+  <button class="tbtn" id="undoBtn" title="تراجع" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>
+    تراجع
+  </button>
+  <button class="tbtn" id="clearBtn" title="مسح الكل">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+    مسح الكل
+  </button>
+  <button class="tbtn" id="fsBtn" title="ملء الشاشة">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M16 3h3a2 2 0 012 2v3"/><path d="M8 21H5a2 2 0 01-2-2v-3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
+    ملء الشاشة
+  </button>
+  <button class="tbtn" id="hideBar" title="إخفاء الشريط">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+  </button>
+</div>
+
+<button id="showBar" title="إظهار شريط الأدوات">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#16324F" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+</button>
+
+<div id="chip"></div>
+<div id="ecur"></div>
+<div id="hint">ارسم مباشرة على المستوى بالإصبع أو الفأرة — اضغط <b>ملء الشاشة</b> لتكبير السبورة</div>
+<div id="credit">إعداد: أماني التركي</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const gridC = $("grid"), inkC = $("ink");
+const gx = gridC.getContext("2d"), ix = inkC.getContext("2d");
+const chip = $("chip"), ecur = $("ecur"), hint = $("hint");
+
+/* ---------------- الحالة ---------------- */
+let range = 10;                 // المدى الموجب
+let tool = "pen";
+let penColor = "#1B2430";
+let penSize = 5;                // بالبكسل
+let snap = false;
+let chipOn = true;
+let strokes = [];               // {kind:'pen'|'line'|'dot', color, width, pts:[{x,y}...]}
+let history = [];               // {type:'add'|'erase'|'clear', ...}
+let drawing = null;             // الخط قيد الرسم
+let W = 0, H = 0, DPR = 1, u = 0, cx = 0, cy = 0;
+
+/* ---------------- أدوات القياس ---------------- */
+function toPx(p){ return { x: cx + p.x * u, y: cy - p.y * u }; }
+function toUnit(e){
+  const r = inkC.getBoundingClientRect();
+  return { x: (e.clientX - r.left - cx) / u, y: (cy - (e.clientY - r.top)) / u };
+}
+function snapP(p){
+  if (!snap) return p;
+  return { x: Math.round(p.x), y: Math.round(p.y) };
+}
+
+/* ---------------- رسم الشبكة ---------------- */
+function labelStep(){
+  for (const s of [1,2,5,10]) if (u * s >= 34) return s;
+  return 10;
+}
+function drawGrid(){
+  gx.setTransform(DPR,0,0,DPR,0,0);
+  gx.clearRect(0,0,W,H);
+  gx.fillStyle = "#FDFDFB";
+  gx.fillRect(0,0,W,H);
+
+  const x0 = Math.ceil((0 - cx) / u), x1 = Math.floor((W - cx) / u);
+  const y0 = Math.ceil((cy - H) / u), y1 = Math.floor(cy / u);
+
+  // خطوط الشبكة
+  for (let x = x0; x <= x1; x++){
+    const px = cx + x * u;
+    gx.strokeStyle = (x % 5 === 0 && x !== 0) ? "#C9D2DE" : "#E3E8EF";
+    gx.lineWidth = 1;
+    gx.beginPath(); gx.moveTo(px, 0); gx.lineTo(px, H); gx.stroke();
+  }
+  for (let y = y0; y <= y1; y++){
+    const py = cy - y * u;
+    gx.strokeStyle = (y % 5 === 0 && y !== 0) ? "#C9D2DE" : "#E3E8EF";
+    gx.lineWidth = 1;
+    gx.beginPath(); gx.moveTo(0, py); gx.lineTo(W, py); gx.stroke();
+  }
+
+  // المحاور
+  gx.strokeStyle = "#111827";
+  gx.lineWidth = 3;
+  gx.beginPath(); gx.moveTo(0, cy); gx.lineTo(W, cy); gx.stroke();
+  gx.beginPath(); gx.moveTo(cx, 0); gx.lineTo(cx, H); gx.stroke();
+
+  // رؤوس الأسهم + حرفا المحورين
+  gx.fillStyle = "#111827";
+  const a = 11;
+  gx.beginPath(); gx.moveTo(W - 2, cy); gx.lineTo(W - 2 - a, cy - a * .62); gx.lineTo(W - 2 - a, cy + a * .62); gx.closePath(); gx.fill();
+  gx.beginPath(); gx.moveTo(cx, 2); gx.lineTo(cx - a * .62, 2 + a); gx.lineTo(cx + a * .62, 2 + a); gx.closePath(); gx.fill();
+  const af = Math.max(17, Math.min(30, u * .42));
+  gx.font = "800 " + af + "px 'Segoe UI', Arial, sans-serif";
+  gx.textAlign = "right"; gx.textBaseline = "bottom";
+  gx.fillText("X", W - 8, cy - 10);
+  gx.textAlign = "left"; gx.textBaseline = "top";
+  gx.fillText("Y", cx + 10, 8);
+
+  // الأرقام (اتجاه LTR حتى لا ينقلب سالب العدد)
+  gx.direction = "ltr";
+  const step = labelStep();
+  const lf = Math.max(13, Math.min(24, u * .3));
+  gx.font = "700 " + lf + "px 'Segoe UI', Arial, sans-serif";
+  gx.fillStyle = "#3D4B5C";
+  const nx0 = Math.max(x0, -range), nx1 = Math.min(x1, range);
+  const ny0 = Math.max(y0, -range), ny1 = Math.min(y1, range);
+  gx.textAlign = "center"; gx.textBaseline = "top";
+  for (let x = Math.ceil(nx0 / step) * step; x <= nx1; x += step){
+    if (x === 0) continue;
+    gx.fillText(String(x), cx + x * u, cy + 9);
+  }
+  gx.textAlign = "right"; gx.textBaseline = "middle";
+  for (let y = Math.ceil(ny0 / step) * step; y <= ny1; y += step){
+    if (y === 0) continue;
+    gx.fillText(String(y), cx - 9, cy - y * u);
+  }
+  gx.textAlign = "right"; gx.textBaseline = "top";
+  gx.fillText("0", cx - 7, cy + 8);
+}
+
+/* ---------------- رسم الحبر ---------------- */
+function drawStroke(s){
+  ix.strokeStyle = s.color;
+  ix.fillStyle = s.color;
+  ix.lineWidth = s.width;
+  ix.lineCap = "round";
+  ix.lineJoin = "round";
+  if (s.kind === "dot"){
+    const p = toPx(s.pts[0]);
+    ix.beginPath(); ix.arc(p.x, p.y, s.width / 2, 0, Math.PI * 2); ix.fill();
+    return;
+  }
+  if (s.kind === "line"){
+    const a = toPx(s.pts[0]), b = toPx(s.pts[1]);
+    ix.beginPath(); ix.moveTo(a.x, a.y); ix.lineTo(b.x, b.y); ix.stroke();
+    return;
+  }
+  const P = s.pts.map(toPx);
+  if (P.length < 3){
+    ix.beginPath(); ix.moveTo(P[0].x, P[0].y);
+    ix.lineTo(P[P.length-1].x, P[P.length-1].y); ix.stroke();
+    return;
+  }
+  ix.beginPath();
+  ix.moveTo(P[0].x, P[0].y);
+  for (let i = 1; i < P.length - 1; i++){
+    const mx = (P[i].x + P[i+1].x) / 2, my = (P[i].y + P[i+1].y) / 2;
+    ix.quadraticCurveTo(P[i].x, P[i].y, mx, my);
+  }
+  const L = P[P.length-1];
+  ix.lineTo(L.x, L.y);
+  ix.stroke();
+}
+function redraw(){
+  ix.setTransform(DPR,0,0,DPR,0,0);
+  ix.clearRect(0,0,W,H);
+  for (const s of strokes) drawStroke(s);
+  if (drawing) drawStroke(drawing);
+}
+
+/* ---------------- التحجيم ---------------- */
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  W = window.innerWidth; H = window.innerHeight;
+  for (const c of [gridC, inkC]){
+    c.width = Math.round(W * DPR);
+    c.height = Math.round(H * DPR);
+    c.style.width = W + "px";
+    c.style.height = H + "px";
+  }
+  u = Math.min(W, H) / (range * 2);
+  cx = W / 2; cy = H / 2;
+  drawGrid(); redraw();
+}
+window.addEventListener("resize", resize);
+document.addEventListener("fullscreenchange", resize);
+
+/* ---------------- الرسم بالتأشير ---------------- */
+let lastMid = null;
+function begin(e){
+  const p = toUnit(e);
+  if (tool === "eraser"){ eraseAt(e); drawing = { erasing:true }; return; }
+  const sp = (tool === "line") ? snapP(p) : p;
+  drawing = { kind: (tool === "line") ? "line" : "pen",
+              color: penColor, width: penSize, pts: [sp] };
+  if (tool === "pen"){ lastMid = toPx(sp); drawing._last = sp; }
+  redraw();
+}
+function move(e){
+  updateChip(e);
+  positionEcur(e);
+  if (!drawing) return;
+  const p = toUnit(e);
+  if (drawing.erasing){ eraseAt(e); return; }
+  if (drawing.kind === "line"){
+    drawing.pts[1] = snapP(p);
+    redraw();
+    return;
+  }
+  // قلم: رسم تزايدي سلس
+  const lp = drawing._last;
+  if (Math.hypot(p.x - lp.x, p.y - lp.y) * u < 1.2) return;
+  drawing.pts.push(p);
+  drawing._last = p;
+  const cur = toPx(p);
+  const mid = { x: (lastMid.x + cur.x) / 2, y: (lastMid.y + cur.y) / 2 };
+  ix.strokeStyle = drawing.color; ix.lineWidth = drawing.width;
+  ix.lineCap = "round"; ix.lineJoin = "round";
+  ix.beginPath();
+  ix.moveTo(lastMid.x, lastMid.y);
+  ix.quadraticCurveTo(toPx(lp).x, toPx(lp).y, mid.x, mid.y);
+  ix.stroke();
+  lastMid = mid;
+}
+function end(){
+  if (!drawing) return;
+  if (!drawing.erasing){
+    if (drawing.kind === "line"){
+      if (Math.hypot(drawing.pts[1].x - drawing.pts[0].x, drawing.pts[1].y - drawing.pts[0].y) * u < 3){
+        drawing.kind = "dot"; drawing.pts = [drawing.pts[0]];   // نقرة = نقطة
+      }
+    } else if (drawing.pts.length < 2){
+      drawing.kind = "dot"; drawing.pts = [drawing.pts[0]];     // نقرة = نقطة
+    }
+    strokes.push(drawing);
+    history.push({ type:"add", stroke: drawing });
+    syncUndo();
+  }
+  drawing = null; lastMid = null;
+  redraw();
+}
+
+const inkWrap = inkC;
+inkWrap.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  hideHint();
+  inkWrap.setPointerCapture(e.pointerId);
+  begin(e);
+});
+inkWrap.addEventListener("pointermove", move);
+inkWrap.addEventListener("pointerup", end);
+inkWrap.addEventListener("pointercancel", end);
+inkWrap.addEventListener("pointerleave", () => { chip.style.display = "none"; ecur.style.display = "none"; });
+inkWrap.addEventListener("contextmenu", e => e.preventDefault());
+
+/* ---------------- الممحاة (تمسح الخط كاملاً) ---------------- */
+function eraseAt(e){
+  const r = inkC.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const R = 16;
+  for (let i = strokes.length - 1; i >= 0; i--){
+    const s = strokes[i];
+    const pts = s.pts.map(toPx);
+    let hit = false;
+    if (s.kind === "dot"){
+      hit = Math.hypot(pts[0].x - px, pts[0].y - py) < R + s.width;
+    } else if (s.kind === "line"){
+      hit = segDist(px, py, pts[0], pts[1]) < R + s.width / 2;
+    } else {
+      for (let j = 0; j + 1 < pts.length && !hit; j++)
+        hit = segDist(px, py, pts[j], pts[j+1]) < R + s.width / 2;
+      if (!hit && pts.length === 1) hit = Math.hypot(pts[0].x - px, pts[0].y - py) < R + s.width;
+    }
+    if (hit){
+      history.push({ type:"erase", stroke: s });
+      strokes.splice(i, 1);
+      syncUndo(); redraw();
+      return;
+    }
+  }
+}
+function segDist(px, py, a, b){
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const L2 = dx * dx + dy * dy;
+  let t = L2 ? ((px - a.x) * dx + (py - a.y) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+}
+
+/* ---------------- بطاقة الإحداثيات ---------------- */
+function fmt(v){
+  const r = Math.round(v * 10) / 10;
+  return (r % 1 === 0) ? String(r) : r.toFixed(1);
+}
+function updateChip(e){
+  if (!chipOn){ chip.style.display = "none"; return; }
+  const p = toUnit(e);
+  const inside = Math.abs(p.x) <= range && Math.abs(p.y) <= range;
+  chip.textContent = "(" + fmt(p.x) + ", " + fmt(p.y) + ")";
+  chip.style.display = "block";
+  const r = inkC.getBoundingClientRect();
+  let x = e.clientX - r.left + 14, y = e.clientY - r.top - 34;
+  x = Math.max(4, Math.min(W - 110, x));
+  y = Math.max(4, Math.min(H - 40, y));
+  chip.style.left = x + "px";
+  chip.style.top = y + "px";
+  chip.style.opacity = inside ? "1" : ".45";
+}
+function positionEcur(e){
+  if (tool !== "eraser"){ ecur.style.display = "none"; return; }
+  const r = inkC.getBoundingClientRect();
+  ecur.style.display = "block";
+  ecur.style.left = (e.clientX - r.left) + "px";
+  ecur.style.top = (e.clientY - r.top) + "px";
+}
+
+/* ---------------- شريط الأدوات ---------------- */
+const COLORS = [
+  ["#1B2430","أسود"], ["#D93A3A","أحمر"], ["#2456D9","أزرق"],
+  ["#0E9F6E","أخضر"], ["#E58A00","برتقالي"]
+];
+const SIZES = [[3,"رفيع"],[5,"وسط"],[9,"عريض"]];
+const cbox = $("colors"), sbox = $("sizes");
+COLORS.forEach(([c,name], i) => {
+  const b = document.createElement("button");
+  b.className = "cdot" + (i === 0 ? " active" : "");
+  b.style.background = c;
+  b.title = "لون " + name;
+  b.addEventListener("click", () => {
+    penColor = c;
+    [...cbox.children].forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    if (tool === "eraser") setTool("pen");
+  });
+  cbox.appendChild(b);
+});
+SIZES.forEach(([s,name], i) => {
+  const b = document.createElement("button");
+  b.className = "szbtn" + (i === 1 ? " active" : "");
+  b.title = "سماكة " + name;
+  const d = document.createElement("i");
+  const px = [5, 9, 15][i];
+  d.style.width = d.style.height = px + "px";
+  b.appendChild(d);
+  b.addEventListener("click", () => {
+    penSize = s;
+    [...sbox.children].forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+  });
+  sbox.appendChild(b);
+});
+
+function setTool(t){
+  tool = t;
+  document.querySelectorAll(".tool").forEach(b => b.classList.toggle("active", b.dataset.tool === t));
+  ecur.style.display = "none";
+  inkC.style.cursor = (t === "eraser") ? "none" : "crosshair";
+}
+document.querySelectorAll(".tool").forEach(b =>
+  b.addEventListener("click", () => setTool(b.dataset.tool)));
+
+$("snapBtn").addEventListener("click", e => {
+  snap = !snap;
+  e.currentTarget.classList.toggle("active", snap);
+});
+$("chipBtn").addEventListener("click", e => {
+  chipOn = !chipOn;
+  e.currentTarget.classList.toggle("active", chipOn);
+  if (!chipOn) chip.style.display = "none";
+});
+$("range").addEventListener("change", e => {
+  range = parseInt(e.target.value, 10);
+  resize();
+});
+
+/* ---------------- تراجع ومسح ---------------- */
+const undoBtn = $("undoBtn");
+function syncUndo(){ undoBtn.disabled = history.length === 0; }
+function undo(){
+  const h = history.pop();
+  if (!h) return;
+  if (h.type === "add"){
+    const i = strokes.indexOf(h.stroke);
+    if (i > -1) strokes.splice(i, 1);
+  } else if (h.type === "erase"){
+    strokes.push(h.stroke);
+  } else if (h.type === "clear"){
+    strokes = h.strokes;
+  }
+  syncUndo(); redraw();
+}
+undoBtn.addEventListener("click", undo);
+$("clearBtn").addEventListener("click", () => {
+  if (!strokes.length) return;
+  history.push({ type:"clear", strokes: strokes });
+  strokes = [];
+  syncUndo(); redraw();
+});
+
+/* ---------------- ملء الشاشة وإخفاء الشريط ---------------- */
+$("fsBtn").addEventListener("click", () => {
+  if (document.fullscreenElement){ document.exitFullscreen(); return; }
+  const el = document.documentElement;
+  (el.requestFullscreen || el.webkitRequestFullscreen || function(){}).call(el)
+    ?.catch?.(() => {});
+});
+const bar = $("bar"), showB = $("showBar");
+$("hideBar").addEventListener("click", () => { bar.style.display = "none"; showB.style.display = "flex"; });
+showB.addEventListener("click", () => { bar.style.display = "flex"; showB.style.display = "none"; });
+
+window.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.key.toLowerCase() === "z"){ e.preventDefault(); undo(); }
+  else if (e.key.toLowerCase() === "f") $("fsBtn").click();
+  else if (e.key.toLowerCase() === "p") setTool("pen");
+  else if (e.key.toLowerCase() === "l") setTool("line");
+  else if (e.key.toLowerCase() === "e") setTool("eraser");
+});
+
+/* ---------------- التلميح ---------------- */
+let hintGone = false;
+function hideHint(){
+  if (hintGone) return;
+  hintGone = true;
+  hint.classList.add("gone");
+}
+setTimeout(hideHint, 6000);
+
+/* ---------------- نموذج تجريبي (?demo) ---------------- */
+if (location.search.includes("demo")){
+  const A = {x:2,y:3}, B = {x:-3,y:1}, C = {x:0,y:-2};
+  strokes.push(
+    { kind:"dot", color:"#D93A3A", width:11, pts:[A] },
+    { kind:"dot", color:"#D93A3A", width:11, pts:[B] },
+    { kind:"dot", color:"#D93A3A", width:11, pts:[C] },
+    { kind:"line", color:"#2456D9", width:5, pts:[A,B] },
+    { kind:"line", color:"#2456D9", width:5, pts:[B,C] },
+    { kind:"line", color:"#2456D9", width:5, pts:[C,A] },
+    { kind:"pen", color:"#0E9F6E", width:6, pts:[{x:-8,y:-5},{x:-6,y:-1},{x:-4,y:2},{x:-2,y:4},{x:0,y:5},{x:2,y:6},{x:4,y:6},{x:6,y:5},{x:8,y:3}] }
+  );
+}
+
+/* ---------------- انطلاق ---------------- */
+resize();
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c01a94c73b74392e4234840661791215815920" integrity="sha512-L0ha0OXavK/8okipN9F8BtP84dg9DUhPERbBXzwI6dgTA55d2+yweo3pn5CSFYs45/r8md2+xvUPtTdvTNRfjA==" data-cf-beacon='{"version":"2024.11.0","token":"4edd5f8ec12a48cfa682ab8261b80a79","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
